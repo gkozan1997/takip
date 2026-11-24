@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>İade Takip Sistemi</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}" />
+</head>
+<body>
+  <div class="app-shell">
+    <!-- Top Header -->
+    <header class="topbar">
+      <div class="topbar-inner">
+        <div class="brand">
+          <div class="brand-logo" aria-hidden="true">↩</div>
+          <div>
+            <h1 class="brand-title">İade Takip</h1>
+            <p class="brand-sub">Pazaryeri & Depo İade Yönetimi</p>
+          </div>
+        </div>
+
+        <form id="quick-scan-form" class="quick-scan" autocomplete="off">
+          <span class="scan-icon" aria-hidden="true">⌖</span>
+          <input
+            type="text"
+            id="quick-scan-input"
+            placeholder="Barkod, kargo takip veya sipariş no okutun..."
+            aria-label="Barkod veya kargo takip numarası ile sorgula"
+          />
+          <button type="submit" class="btn btn-primary btn-sm">Sorgula</button>
+        </form>
+
+        <div class="topbar-actions">
+          <button type="button" class="btn btn-outline" id="btn-open-import">
+            <span>⬆</span> Excel Yükle
+          </button>
+          <button type="button" class="btn btn-outline" id="btn-export-excel">
+            <span>⬇</span> Rapor İndir
+          </button>
+          <button type="button" class="btn btn-primary" id="btn-new-return">
+            <span>＋</span> Yeni İade
+          </button>
+        </div>
+      </div>
+
+      <!-- Navigation Tabs -->
+      <nav class="nav-tabs" aria-label="Ana Modüller">
+        <button type="button" class="nav-tab active" data-tab="records">
+          📦 İade Kayıtları <span class="tab-badge" id="nav-count-badge">0</span>
+        </button>
+        <button type="button" class="nav-tab" data-tab="dashboard">
+          📊 Analiz & Özet
+        </button>
+        <button type="button" class="nav-tab" data-tab="scanner">
+          📷 Barkod & Kargo Kontrol
+        </button>
+      </nav>
+    </header>
+
+    <main class="main-content">
+      <!-- KPI Strip (Always visible summary) -->
+      <section class="kpi-grid" aria-label="Özet Göstergeler">
+        <article class="kpi-card" data-filter-status="all">
+          <div class="kpi-label">Toplam İade</div>
+          <div class="kpi-value" id="kpi-total">0</div>
+          <div class="kpi-meta" id="kpi-units">0 Adet Ürün</div>
+        </article>
+        <article class="kpi-card kpi-amber" data-filter-status="beklemede">
+          <div class="kpi-label">Bekleyen / Yolda</div>
+          <div class="kpi-value" id="kpi-pending">0</div>
+          <div class="kpi-meta">Teslimat bekleniyor</div>
+        </article>
+        <article class="kpi-card kpi-purple" data-filter-status="inceleniyor">
+          <div class="kpi-label">Teslim & İnceleme</div>
+          <div class="kpi-value" id="kpi-review">0</div>
+          <div class="kpi-meta">Kontrol aşamasında</div>
+        </article>
+        <article class="kpi-card kpi-green" data-filter-status="onaylandi">
+          <div class="kpi-label">Onaylanan / Tamam</div>
+          <div class="kpi-value" id="kpi-approved">0</div>
+          <div class="kpi-meta" id="kpi-amount">0,00 ₺</div>
+        </article>
+        <article class="kpi-card kpi-red" data-filter-status="reddedildi">
+          <div class="kpi-label">Reddedilen</div>
+          <div class="kpi-value" id="kpi-rejected">0</div>
+          <div class="kpi-meta">İtiraz / red</div>
+        </article>
+      </section>
+
+      <!-- TAB 1: RETURNS LIST -->
+      <section id="tab-records" class="tab-panel active">
+        <!-- Filters Bar -->
+        <div class="card filter-card">
+          <div class="filter-grid">
+            <div class="field field-search">
+              <label for="filter-search">Arama</label>
+              <input
+                type="text"
+                id="filter-search"
+                placeholder="Müşteri, ürün, stok kodu, sipariş veya takip no..."
+              />
+            </div>
+            <div class="field">
+              <label for="filter-status">Durum</label>
+              <select id="filter-status">
+                <option value="all">Tüm Durumlar</option>
+                {% for s in status_options %}
+                <option value="{{ s.key }}">{{ s.label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="field">
+              <label for="filter-marketplace">Pazaryeri</label>
+              <select id="filter-marketplace">
+                <option value="all">Tüm Kanallar</option>
+                {% for m in marketplace_options %}
+                <option value="{{ m }}">{{ m }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="field">
+              <label for="filter-reason">İade Nedeni</label>
+              <select id="filter-reason">
+                <option value="all">Tüm Nedenler</option>
+                {% for r in reason_options %}
+                <option value="{{ r }}">{{ r }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="field">
+              <label for="filter-evidence">Kanıt / Fotoğraf</label>
+              <select id="filter-evidence">
+                <option value="">Tümü</option>
+                <option value="yes">Kanıtlı Kayıtlar</option>
+                <option value="no">Kanıtsız Kayıtlar</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="filter-date-from">Başlangıç</label>
+              <input type="date" id="filter-date-from" />
+            </div>
+            <div class="field">
+              <label for="filter-date-to">Bitiş</label>
+              <input type="date" id="filter-date-to" />
+            </div>
+            <div class="field field-actions">
+              <button type="button" class="btn btn-ghost btn-sm" id="btn-reset-filters">Filtreleri Sıfırla</button>
+            </div>
+          </div>
+
+          <!-- Bulk Selection Bar -->
+          <div id="bulk-bar" class="bulk-bar hidden">
+            <span><strong id="bulk-count">0</strong> kayıt seçildi</span>
+            <div class="bulk-controls">
+              <select id="bulk-status-select" aria-label="Toplu durum seçimi">
+                {% for s in status_options %}
+                <option value="{{ s.key }}">{{ s.label }}</option>
+                {% endfor %}
+              </select>
+              <button type="button" class="btn btn-primary btn-sm" id="btn-bulk-apply">Durumu Uygula</button>
+              <button type="button" class="btn btn-ghost btn-sm" id="btn-bulk-clear">Seçimi Kaldır</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Records Table (Desktop) & Cards (Mobile) -->
+        <div class="card table-card">
+          <div class="table-responsive">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th class="col-check">
+                    <input type="checkbox" id="select-all-rows" aria-label="Tümünü seç" />
+                  </th>
+                  <th>İade Kodu / Tarih</th>
+                  <th>Müşteri & Kanal</th>
+                  <th>Ürün & Stok Kodu</th>
+                  <th>Kargo / Takip</th>
+                  <th class="text-center">Adet</th>
+                  <th class="text-right">Tutar</th>
+                  <th>Durum</th>
+                  <th class="text-center">Kanıt</th>
+                  <th class="text-right">İşlem</th>
+                </tr>
+              </thead>
+              <tbody id="returns-tbody">
+                <tr>
+                  <td colspan="10" class="empty-cell">Yükleniyor...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div id="mobile-cards" class="mobile-cards"></div>
+        </div>
+      </section>
+
+      <!-- TAB 2: ANALYTICS DASHBOARD -->
+      <section id="tab-dashboard" class="tab-panel">
+        <div class="analytics-grid">
+          <div class="card">
+            <h2 class="card-title">Durumlara Göre Dağılım</h2>
+            <div id="chart-status" class="bar-list"></div>
+          </div>
+          <div class="card">
+            <h2 class="card-title">Pazaryeri Bazlı İadeler</h2>
+            <div id="chart-marketplace" class="bar-list"></div>
+          </div>
+          <div class="card">
+            <h2 class="card-title">En Sık İade Nedenleri</h2>
+            <div id="chart-reasons" class="bar-list"></div>
+          </div>
+          <div class="card">
+            <h2 class="card-title">Son İşlem Geçmişi</h2>
+            <div id="recent-activity" class="activity-list"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- TAB 3: BARCODE & TRACKING SCANNER -->
+      <section id="tab-scanner" class="tab-panel">
+        <div class="card scanner-card">
+          <div class="scanner-header">
+            <div>
+              <h2 class="card-title">Hızlı Barkod & Kargo Takip Kontrolü</h2>
+              <p class="muted-text">
+                El terminaliyle okutun, manuel girin veya desteklenen cihazlarda kamerayla tarayın.
+              </p>
+            </div>
+            <div class="scanner-buttons">
+              <button type="button" class="btn btn-outline" id="btn-toggle-camera">📷 Kamera Aç</button>
+            </div>
+          </div>
+
+          <form id="scanner-form" class="scanner-input-row" autocomplete="off">
+            <input
+              type="text"
+              id="scanner-input"
+              placeholder="Barkod, kargo takip no, sipariş no veya iade kodu..."
+              autocomplete="off"
+            />
+            <button type="submit" class="btn btn-primary">Ara / Bul</button>
+          </form>
+
+          <div id="camera-box" class="camera-box hidden">
+            <video id="camera-video" autoplay playsinline muted></video>
+            <div class="camera-overlay">Barkodu kamera alanına yaklaştırın...</div>
+            <button type="button" class="btn btn-danger btn-sm" id="btn-stop-camera">Kamerayı Kapat</button>
+          </div>
+
+          <div id="scanner-results" class="scanner-results">
+            <div class="empty-state">
+              <div class="empty-icon">⌖</div>
+              <p>Sorgulama yapmak için bir kod okutun veya yazın.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Mobile Bottom Navigation -->
+    <nav class="mobile-bottom-nav" aria-label="Mobil Menü">
+      <button type="button" class="mobile-nav-btn active" data-tab="records">
+        <span>📦</span><small>Kayıtlar</small>
+      </button>
+      <button type="button" class="mobile-nav-btn" data-tab="scanner">
+        <span>📷</span><small>Okut</small>
+      </button>
+      <button type="button" class="mobile-nav-btn" data-tab="dashboard">
+        <span>📊</span><small>Analiz</small>
+      </button>
+      <button type="button" class="mobile-nav-btn" id="mobile-btn-add">
+        <span>＋</span><small>Yeni Ekle</small>
+      </button>
+    </nav>
+  </div>
+
+  <!-- MODAL: CREATE / EDIT RETURN -->
+  <div id="return-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="return-modal-title">
+    <div class="modal-backdrop" data-close-modal="return-modal"></div>
+    <div class="modal-dialog modal-lg">
+      <div class="modal-header">
+        <h2 id="return-modal-title">Yeni İade Kaydı</h2>
+        <button type="button" class="icon-close" data-close-modal="return-modal" aria-label="Kapat">✕</button>
+      </div>
+      <form id="return-form" class="modal-body">
+        <input type="hidden" id="form-return-id" />
+        <div class="form-grid">
+          <div class="field">
+            <label for="form-marketplace">Pazaryeri / Kanal</label>
+            <select id="form-marketplace">
+              {% for m in marketplace_options %}
+              <option value="{{ m }}">{{ m }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label for="form-order-no">Sipariş No</label>
+            <input type="text" id="form-order-no" placeholder="Örn: TY-987654321" />
+          </div>
+          <div class="field">
+            <label for="form-tracking-no">Kargo Takip / İade Kodu</label>
+            <input type="text" id="form-tracking-no" placeholder="Örn: 728901234567" />
+          </div>
+          <div class="field">
+            <label for="form-cargo">Kargo Firması</label>
+            <select id="form-cargo">
+              <option value="">Seçiniz...</option>
+              {% for c in cargo_options %}
+              <option value="{{ c }}">{{ c }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="field span-2">
+            <label for="form-product-name">Ürün Adı *</label>
+            <input type="text" id="form-product-name" required placeholder="İade gelen ürünün tam adı" />
+          </div>
+          <div class="field">
+            <label for="form-sku">Stok Kodu (SKU)</label>
+            <input type="text" id="form-sku" placeholder="Örn: KLK-SYH-01" />
+          </div>
+          <div class="field">
+            <label for="form-barcode">Ürün Barkodu</label>
+            <input type="text" id="form-barcode" placeholder="869..." />
+          </div>
+
+          <div class="field">
+            <label for="form-customer-name">Müşteri Adı</label>
+            <input type="text" id="form-customer-name" placeholder="Ad Soyad" />
+          </div>
+          <div class="field">
+            <label for="form-customer-phone">Telefon</label>
+            <input type="text" id="form-customer-phone" placeholder="05xx..." />
+          </div>
+          <div class="field">
+            <label for="form-quantity">Adet</label>
+            <input type="number" id="form-quantity" min="1" value="1" />
+          </div>
+          <div class="field">
+            <label for="form-amount">İade Tutarı (₺)</label>
+            <input type="number" id="form-amount" min="0" step="0.01" value="0" />
+          </div>
+
+          <div class="field">
+            <label for="form-status">İade Durumu</label>
+            <select id="form-status">
+              {% for s in status_options %}
+              <option value="{{ s.key }}">{{ s.label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label for="form-condition">Ürün Kondisyonu</label>
+            <select id="form-condition">
+              {% for c in condition_options %}
+              <option value="{{ c.key }}">{{ c.label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label for="form-reason">İade Nedeni</label>
+            <select id="form-reason">
+              <option value="">Seçiniz...</option>
+              {% for r in reason_options %}
+              <option value="{{ r }}">{{ r }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="field">
+            <label for="form-date">İade Tarihi</label>
+            <input type="date" id="form-date" />
+          </div>
+
+          <div class="field span-2">
+            <label for="form-notes">Notlar & İnceleme Açıklaması</label>
+            <textarea id="form-notes" rows="3" placeholder="Kutu durumu, eksik parça veya red gerekçesi..."></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-ghost" data-close-modal="return-modal">İptal</button>
+          <button type="submit" class="btn btn-primary" id="btn-save-return">Kaydet</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- SLIDE-OVER DRAWER: DETAIL, EVIDENCE & HISTORY -->
+  <div id="detail-drawer" class="drawer hidden" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+    <div class="modal-backdrop" data-close-modal="detail-drawer"></div>
+    <div class="drawer-panel">
+      <div class="drawer-header">
+        <div>
+          <span class="code-chip" id="drawer-code">IAD-...</span>
+          <h2 id="drawer-title">İade Detayı</h2>
+        </div>
+        <div class="drawer-header-actions">
+          <button type="button" class="btn btn-outline btn-sm" id="drawer-btn-edit">✏ Düzenle</button>
+          <button type="button" class="btn btn-danger btn-sm" id="drawer-btn-delete">🗑 Sil</button>
+          <button type="button" class="icon-close" data-close-modal="detail-drawer" aria-label="Kapat">✕</button>
+        </div>
+      </div>
+
+      <div class="drawer-body">
+        <!-- Quick Status Stepper -->
+        <div class="detail-section">
+          <h3>Hızlı Durum Güncelle</h3>
+          <div id="drawer-status-pills" class="status-pills"></div>
+          <div class="quick-note-row">
+            <input type="text" id="drawer-status-note" placeholder="Durum değişikliği notu (isteğe bağlı)..." />
+          </div>
+        </div>
+
+        <!-- Metadata Info -->
+        <div class="detail-section">
+          <h3>Ürün & Sipariş Bilgileri</h3>
+          <div id="drawer-info-grid" class="info-grid"></div>
+        </div>
+
+        <!-- Evidence Upload & Gallery -->
+        <div class="detail-section">
+          <div class="section-row">
+            <h3>Fotoğraf & Kanıtlar</h3>
+            <span class="muted-text" id="drawer-evidence-count">0 dosya</span>
+          </div>
+          <form id="evidence-upload-form" class="evidence-dropzone">
+            <input
+              type="file"
+              id="evidence-files-input"
+              multiple
+              accept="image/*,.pdf"
+              hidden
+            />
+            <div class="dropzone-prompt" id="evidence-drop-trigger">
+              <span>📸</span>
+              <div>
+                <strong>Fotoğraf veya PDF seçin / sürükleyin</strong>
+                <small>Telefondan direkt fotoğraf çekebilir veya çoklu dosya yükleyebilirsiniz</small>
+              </div>
+            </div>
+            <div class="evidence-caption-row">
+              <input type="text" id="evidence-caption-input" placeholder="Kanıt açıklaması (örn: Kutu ezik)..." />
+              <button type="button" class="btn btn-primary btn-sm" id="btn-pick-evidence">Dosya Seç & Yükle</button>
+            </div>
+          </form>
+          <div id="drawer-evidence-grid" class="evidence-grid"></div>
+        </div>
+
+        <!-- Audit Timeline -->
+        <div class="detail-section">
+          <h3>İşlem Geçmişi</h3>
+          <div id="drawer-history" class="timeline"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: EXCEL / CSV IMPORT -->
+  <div id="import-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="import-modal-title">
+    <div class="modal-backdrop" data-close-modal="import-modal"></div>
+    <div class="modal-dialog modal-xl">
+      <div class="modal-header">
+        <h2 id="import-modal-title">Excel / CSV Toplu İade Yükleme</h2>
+        <button type="button" class="icon-close" data-close-modal="import-modal" aria-label="Kapat">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="import-toolbar">
+          <div class="import-file-box">
+            <input type="file" id="import-file-input" accept=".xlsx,.xls,.csv" />
+            <button type="button" class="btn btn-primary btn-sm" id="btn-upload-preview">Dosyayı Analiz Et</button>
+          </div>
+          <a href="/api/export/template" class="btn btn-outline btn-sm">⬇ Örnek Şablon İndir</a>
+        </div>
+
+        <div id="import-step-2" class="hidden">
+          <div class="import-meta-bar">
+            <span id="import-file-summary"></span>
+          </div>
+
+          <div class="import-options-grid">
+            <div class="field">
+              <label for="import-dup-mode">Mükerrer Kayıt (Sipariş/Takip No) Politikası</label>
+              <select id="import-dup-mode">
+                <option value="skip">Mevcut Kaydı Koru (Atla)</option>
+                <option value="update">Mevcut Kaydı Güncelle</option>
+                <option value="create">Her Satırı Yeni Kayıt Olarak Ekle</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="import-def-marketplace">Varsayılan Pazaryeri (Boşsa)</label>
+              <select id="import-def-marketplace">
+                {% for m in marketplace_options %}
+                <option value="{{ m }}">{{ m }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="field">
+              <label for="import-def-status">Varsayılan Durum (Boşsa)</label>
+              <select id="import-def-status">
+                {% for s in status_options %}
+                <option value="{{ s.key }}">{{ s.label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+
+          <h3 class="sub-heading">Sütun Eşleştirme</h3>
+          <div id="import-mapping-grid" class="mapping-grid"></div>
+
+          <h3 class="sub-heading">Önizleme (İlk 10 Satır)</h3>
+          <div class="table-responsive preview-table-wrap">
+            <table class="data-table compact" id="import-preview-table"></table>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-ghost" data-close-modal="import-modal">Kapat</button>
+        <button type="button" class="btn btn-primary hidden" id="btn-import-commit">İade Kayıtlarını İçeri Aktar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- LIGHTBOX FOR EVIDENCE IMAGES -->
+  <div id="lightbox" class="lightbox hidden">
+    <div class="lightbox-backdrop" id="lightbox-close"></div>
+    <div class="lightbox-content">
+      <button type="button" class="lightbox-x" id="lightbox-x">✕</button>
+      <img id="lightbox-img" src="" alt="Kanıt Görseli" />
+      <p id="lightbox-caption"></p>
+    </div>
+  </div>
+
+  <!-- TOAST CONTAINER -->
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+  <script>
+    window.APP_CONFIG = {
+      statuses: {{ status_options | tojson }},
+      conditions: {{ condition_options | tojson }},
+      marketplaces: {{ marketplace_options | tojson }},
+      cargos: {{ cargo_options | tojson }},
+      reasons: {{ reason_options | tojson }}
+    };
+  </script>
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
+
